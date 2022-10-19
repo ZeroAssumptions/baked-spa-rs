@@ -1,0 +1,26 @@
+/target
+**/*.rs.bk
+bin/
+pkg/
+dist/
+wasm-pack.log
+node_modules
+.idea
+test.json
+make_admin.json
+**/target
+tailwind-ui/Cargo.lock
+state.*
+.direnv
+aide-de-camp-sqlite/sqlite.db
+
+Cargo.lock
+.pre-commit-config.yaml
+
+
+# Added by cargo
+#
+# already existing elements were commented out
+
+#/target
+/Cargo.lock

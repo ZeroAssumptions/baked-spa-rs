@@ -1,0 +1,20 @@
+[package]
+name = "baked-spa"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+authors = ["Andrey Snow <andoriyu@gmail.com>"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+axum = { version = "0.5", default-features = false }
+rust-embed="6.4.1"
+mime_guess = "2.0.4"
+base64 = "0.13.0"
+
+[dev-dependencies]
+tokio = { version = "1.13.0", features = ["full"] }
+axum-test-helper = "0.1.1"
+reqwest = { version = "0.11",  features = ["rustls"] }
+openssl-sys = { version = "0.9", features = ["vendored"]}
