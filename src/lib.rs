@@ -47,7 +47,7 @@ where
 }
 async fn serve_asset<A: RustEmbed>(path: &str) -> Response {
     dbg!(path);
-    if let Some(index) = A::get(path) {
+    if let Some(index) = A::get(path).or_else(|| A::get(INDEX_PATH)) {
         let body = boxed(Full::from(index.data));
         let mime = mime_guess::from_path(path).first_or_octet_stream();
         let etag = base64::encode(index.metadata.sha256_hash());
@@ -57,14 +57,20 @@ async fn serve_asset<A: RustEmbed>(path: &str) -> Response {
             .body(body)
             .unwrap_or_else(|_| not_found())
     } else {
+        dbg!("in branch");
         not_found()
     }
 }
 
 async fn assets_handler<A: RustEmbed>(uri: Uri) -> Response {
-    let path = uri.path().trim_start_matches('/');
-    let path = format!("assets/{path}");
-    serve_asset::<A>(&path).await
+    dbg!(&uri);
+    if uri.path() == "/" {
+        serve_index::<A>().await
+    } else {
+        let path = uri.path().trim_start_matches('/');
+        //let path = format!("assets/{path}");
+        serve_asset::<A>(path).await
+    }
 }
 
 async fn serve_index<A: RustEmbed>() -> Response {
@@ -86,6 +92,10 @@ mod tests {
     #[folder = "fixture/"]
     struct TestAssets;
 
+    #[derive(RustEmbed)]
+    #[folder = "fixture-coordinator/"]
+    struct TestAssetsCoordinator;
+
     #[tokio::test]
     async fn rust_embed_as_file_provider() {
         let resp = serve_index::<TestAssets>().await;
@@ -96,11 +106,10 @@ mod tests {
     async fn basic() {
         let app = Router::new()
             .route("/foo", get(|| async { "GET /foo" }))
-            .merge(SpaRouter::new("/assets") as SpaRouter<TestAssets>);
+            .merge(SpaRouter::new("/") as SpaRouter<TestAssets>);
         let client = TestClient::new(app);
 
         let res = client.get("/").send().await;
-        dbg!(res.headers());
         assert_eq!(res.status(), StatusCode::OK);
         assert!(res.headers().get(header::ETAG).is_some());
         assert_eq!(
@@ -128,7 +137,9 @@ mod tests {
         assert_eq!(res.text().await, "GET /foo");
 
         let res = client.get("/assets/doesnt_exist").send().await;
-        assert_eq!(res.status(), StatusCode::NOT_FOUND);
+        assert_eq!(res.status(), StatusCode::OK);
+        assert!(res.headers().get(header::ETAG).is_some());
+        assert_eq!(res.text().await, "<h1>Hello, World!</h1>\n");
     }
 
     #[tokio::test]
@@ -137,14 +148,14 @@ mod tests {
             .route("/api", get(|| async { "OK" }))
             .route("/", get(|| async { Redirect::permanent("/ui/") }))
             .route("/ui", get(|| async { Redirect::permanent("/ui/") }))
-            .merge(SpaRouter::new("/ui/assets") as SpaRouter<TestAssets>);
+            .merge(SpaRouter::new("/ui/assets") as SpaRouter<TestAssetsCoordinator>);
         let client = TestClient::new(app);
 
         // `GET /` will redirect to `/ui/`
         // `GET /ui` will redirect to `/ui/`
         // `GET /ui/` will serve index
         // `GET /ui/assets/script.js` will serve `script.js`
-        // `GET /ui/assets/doesnt_exist` will serve 404
+        // `GET /ui/assets/doesnt_exist` will serve index
         // `GET /api/` will serve `OK`
 
         let res = client.get("/").send().await;
@@ -168,7 +179,9 @@ mod tests {
         assert_eq!(res.text().await, "console.log('hi')\n");
 
         let res = client.get("/ui/assets/doesnt_exist").send().await;
-        assert_eq!(res.status(), StatusCode::NOT_FOUND);
+        assert_eq!(res.status(), StatusCode::OK);
+        assert!(res.headers().get(header::ETAG).is_some());
+        assert_eq!(res.text().await, "<h1>Hello, World!</h1>\n");
 
         let res = client.get("/api").send().await;
         assert_eq!(res.status(), StatusCode::OK);
