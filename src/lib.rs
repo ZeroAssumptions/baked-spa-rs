@@ -6,6 +6,7 @@ use axum::http::{header, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get_service;
 use axum::Router;
+use mime_guess::mime;
 use rust_embed::RustEmbed;
 
 static INDEX_PATH: &str = "index.html";
@@ -46,9 +47,10 @@ where
     }
 }
 async fn serve_asset<A: RustEmbed>(path: &str) -> Response {
+
     if let Some(index) = A::get(path).or_else(|| A::get(INDEX_PATH)) {
         let body = boxed(Full::from(index.data));
-        let mime = mime_guess::from_path(path).first_or_octet_stream();
+        let mime = mime_guess::from_path(path).first_or(mime::TEXT_HTML);
         let etag = base64::encode(index.metadata.sha256_hash());
         Response::builder()
             .header(header::CONTENT_TYPE, mime.as_ref())
@@ -82,7 +84,7 @@ mod tests {
     use super::*;
     use axum::response::Redirect;
     use axum::routing::get;
-    use axum_test_helper::TestClient;
+    use axum_test_helper::{TestClient, TestResponse};
 
     #[derive(RustEmbed)]
     #[folder = "fixture/"]
@@ -140,6 +142,18 @@ mod tests {
 
     #[tokio::test]
     async fn coordinator_routing() {
+        macro_rules! test_index {
+             ($res:ident) => {
+                 assert_eq!($res.status(), StatusCode::OK);
+                 assert!($res.headers().get(header::ETAG).is_some());
+                 assert_eq!(
+                     $res.headers().get(header::CONTENT_TYPE).unwrap(),
+                     "text/html"
+                     );
+             };
+        } {
+
+        }
         let app = Router::new()
             .route("/api", get(|| async { "OK" }))
             .route("/", get(|| async { Redirect::permanent("/ui/") }))
@@ -150,36 +164,39 @@ mod tests {
         // `GET /` will redirect to `/ui/`
         // `GET /ui` will serve index
         // `GET /ui/` will serve index
-        // `GET /ui/script.js` will serve `script.js`
-        // `GET /ui/doesnt_exist` will serve index
+        // `GET /ui/webui-6d04b57e86bad3ca.js` will serve `webui-6d04b57e86bad3ca.js`
+        // `GET /ui/img/logo_dark.png` will serve `img/logo_dark.png`
+        // `GET /ui/auth/sign_in` will serve index
         // `GET /api/` will serve `OK`
 
         let res = client.get("/").send().await;
         assert_eq!(res.status(), StatusCode::PERMANENT_REDIRECT);
 
         let res = client.get("/ui").send().await;
-        assert_eq!(res.status(), StatusCode::OK);
-        assert!(res.headers().get(header::ETAG).is_some());
-        assert_eq!(res.text().await, "<h1>Hello, World!</h1>\n");
+        test_index!(res);
+
 
         let res = client.get("/ui/").send().await;
-        assert_eq!(res.status(), StatusCode::OK);
-        assert!(res.headers().get(header::ETAG).is_some());
-        assert_eq!(res.text().await, "<h1>Hello, World!</h1>\n");
+        test_index!(res);
 
-        let res = client.get("/ui/script.js").send().await;
+        let res = client.get("/ui/webui-6d04b57e86bad3ca.js").send().await;
         assert_eq!(res.status(), StatusCode::OK);
         assert!(res.headers().get(header::ETAG).is_some());
         assert_eq!(
             res.headers().get(header::CONTENT_TYPE).unwrap().as_bytes(),
             b"application/javascript"
         );
-        assert_eq!(res.text().await, "console.log('hi')\n");
 
-        let res = client.get("/ui/doesnt_exist").send().await;
-        assert_eq!(res.status(), StatusCode::OK);
+        let res = client.get("/ui/auth/sign_in").send().await;
+        test_index!(res);
+
+
+        let res = client.get("/ui/img/logo_dark.png").send().await;
         assert!(res.headers().get(header::ETAG).is_some());
-        assert_eq!(res.text().await, "<h1>Hello, World!</h1>\n");
+        assert_eq!(
+            res.headers().get(header::CONTENT_TYPE).unwrap().as_bytes(),
+            b"image/png"
+        );
 
         let res = client.get("/api").send().await;
         assert_eq!(res.status(), StatusCode::OK);
